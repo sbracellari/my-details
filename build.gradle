@@ -1,0 +1,145 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+
+plugins {
+  id 'java'
+  id 'maven-publish'
+  id 'war'
+
+  id 'com.diffplug.spotless' version '5.7.0'
+  id 'com.github.node-gradle.node' version '2.0.0'
+  id 'io.franzbecker.gradle-lombok' version '3.2.0'
+  id 'io.spring.dependency-management' version '1.0.9.RELEASE'
+  id 'org.springframework.boot' version '2.3.4.RELEASE'
+  id 'org.owasp.dependencycheck' version '5.3.0'
+}
+
+node {
+  // Version of node to use.
+  version = '10.14.2'
+  // Base URL for fetching node distributions (change if you have a mirror).
+  distBaseUrl = 'https://nodejs.org/dist'
+  // If true, it will download node using above parameters.
+  // If false, it will try to use globally installed node.
+  download = true
+  // Set the work directory for unpacking node
+  workDir = file("${project.buildDir}/nodejs")
+  // Set the work directory where node_modules should be located
+
+  // Set the work directory for Yarn
+  npmWorkDir = file("${project.buildDir}/npm")
+
+  nodeModulesDir = file("src/main/react")
+}
+
+group = 'edu.oakland'
+version = '1.0.3'
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+repositories {
+  maven {
+    url "https://maven.oakland.edu/repository/public"
+    name "nexus"
+    credentials {
+      username "$mavenUser"
+      password "$mavenPassword"
+    }
+  }
+  mavenLocal()
+  mavenCentral()
+}
+
+processResources {
+  filesMatching("**/application.properties") {
+    def props = new Properties()
+
+	file(System.getenv("PORTAL_HOME") + "/global.properties").withInputStream {
+      props.load(it)
+	}
+
+	file(System.getenv("PORTAL_HOME") + "/uPortal.properties").withInputStream {
+      props.load(it)
+	}
+
+	filter(ReplaceTokens, tokens: props)
+  }
+}
+
+bootWar {
+  archiveName project.name + '.war'
+}
+                     
+war {
+	enabled = true
+  archiveName project.name + '.war'
+}
+
+test {
+  useJUnitPlatform()
+}
+
+tasks.withType(Test) {
+  testLogging {
+    exceptionFormat "full"
+    events "skipped", "passed", "failed"
+  }
+}
+
+spotless {
+  java {
+    googleJavaFormat()
+    importOrder "edu", "java", "com org", ""
+    removeUnusedImports()
+    trimTrailingWhitespace()
+  }
+}
+
+task runBuild(type: NpmTask) {
+  args = ['run', 'build']
+}
+
+task copyTask(type: Copy) {
+  from 'src/main/react/build/static/'
+  into 'src/main/webapp/'
+}
+
+clean.finalizedBy 'npm_install'
+npm_install.finalizedBy 'runBuild'
+runBuild.finalizedBy 'copyTask'
+copyTask.finalizedBy 'spotlessApply'
+
+publishing {
+  publications {
+    mavenWeb(MavenPublication) {
+      version = getVersion()
+      from components.web
+    }
+  }
+  repositories {
+    maven {
+      credentials {
+        username "$mavenUser"
+        password "$mavenPassword"
+      }
+
+      url "https://maven.oakland.edu/repository/uPortal"
+      name "nexus"
+    }
+  }
+}
+
+dependencies {
+  implementation 'org.jasig.portal:uPortal-soffit-renderer:5.6.0'
+  implementation 'org.springframework.boot:spring-boot-starter-data-rest'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+  implementation 'org.jasypt:jasypt:1.9.2'
+  implementation 'edu.oakland:soffit-auth:1.0.0.RC'
+  testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.2'
+  testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.6.2'
+  compile('org.springframework.boot:spring-boot-starter-jdbc')
+	runtimeOnly 'com.oracle:ojdbc8:12.2.0.1.0'
+  providedRuntime 'org.springframework.boot:spring-boot-starter-tomcat'
+  testImplementation('org.springframework.boot:spring-boot-starter-test') {
+    exclude group: 'org.junit.vintage'
+  }
+}
